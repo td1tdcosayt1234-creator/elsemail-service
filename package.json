@@ -1,0 +1,25 @@
+{
+  "name": "email-service",
+  "version": "1.0.0",
+  "description": "Pluggable email microservice - nijer SMTP + third-party API key (Resend/SendGrid/Brevo) support. Full auth mail kit: OTP, verify, reset-password.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "smtp": "node src/dev-smtp.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.2.0",
+    "mailparser": "^3.9.37",
+    "nodemailer": "^6.9.14",
+    "smtp-server": "^3.19.18"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
