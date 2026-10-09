@@ -47,6 +47,18 @@ SMTP_PASS=<vps-password>
 ```
 Cloudflare-e SPF (`v=spf1 ip4:<VPS-IP> ~all`), DKIM (Postal/Mailcow dibe), rDNS/PTR set korte hobe.
 
+## 1d. Pages + Console panel
+
+Home `/`, Console `/console` (login lagbe), Docs `/docs`, Privacy `/privacy`, Terms `/terms`, Login `/login`, Signup `/signup`.
+
+```bash
+npm run dev
+# http://localhost:3002/  -> home
+# http://localhost:3002/console -> signup kore login, mail send/OTP/inbox test
+```
+
+Live: https://dash.elsemail.indevs.in/
+
 ## 2. Provider choose kora
 
 `.env`-e `EMAIL_PROVIDER=` set koro:

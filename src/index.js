@@ -2,18 +2,23 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 
 const config = require('./config');
 const { sendMail, getActiveProvider } = require('./providers');
 const { otpTemplate, verifyEmailTemplate, resetPasswordTemplate, welcomeTemplate } = require('./templates');
 const { saveOtp, checkOtp, issueToken, consumeToken } = require('./store');
+const auth = require('./auth');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '100kb' }));
+app.use(auth.sessionAttach);
 
-// ---- Service API-key guard ----
+// ---- Service API-key guard (console login thakleo cholbe) ----
 function apiKeyAuth(req, res, next) {
+  if (req.session) return next();
   if (!config.serviceApiKey) return next(); // dev mode: open
   const got = req.header('x-api-key');
   if (got !== config.serviceApiKey) return res.status(401).json({ error: 'Invalid x-api-key' });
@@ -129,6 +134,55 @@ app.post('/api/auth/welcome', apiKeyAuth, sendLimiter, async (req, res) => {
     res.status(502).json({ ok: false, error: e.message });
   }
 });
+
+// ---------- Account (login/signup) ----------
+const authLimiter = rateLimit({ windowMs: 60_000, max: 20 });
+app.post('/api/account/register', authLimiter, (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const u = auth.register(email, password);
+    const sid = auth.login(email, password);
+    res.setHeader('Set-Cookie', auth.SESS_COOKIE.replace('SID', sid));
+    res.json({ ok: true, email: u.email });
+  } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.post('/api/account/login', authLimiter, (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const sid = auth.login(email, password);
+    res.setHeader('Set-Cookie', auth.SESS_COOKIE.replace('SID', sid));
+    res.json({ ok: true });
+  } catch (e) { res.status(401).json({ ok: false, error: e.message }); }
+});
+app.post('/api/account/logout', (req, res) => {
+  auth.logout(req.sid);
+  res.setHeader('Set-Cookie', 'es_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  res.json({ ok: true });
+});
+app.get('/api/account/me', (req, res) => {
+  if (!req.session) return res.status(401).json({ error: 'Login lagbe.' });
+  res.json({ ok: true, email: req.session.email });
+});
+
+// ---------- Console inbox (local mails/ folder) ----------
+app.get('/api/console/mails', apiKeyAuth, (req, res) => {
+  try {
+    const dir = path.join(__dirname, '..', 'mails');
+    if (!fs.existsSync(dir)) return res.json([]);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).slice(-50).reverse();
+    res.json(files.map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Pages ----------
+app.use(express.static(path.join(__dirname, '..', 'public')));
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'login.html')));
+app.get('/signup', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'signup.html')));
+app.get('/docs', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'docs.html')));
+app.get('/privacy', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html')));
+app.get('/terms', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'terms.html')));
+app.get('/console', auth.requireSession, (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'console.html')));
 
 app.listen(config.port, () => {
   console.log(`[email-service] http://localhost:${config.port} provider=${getActiveProvider()}`);

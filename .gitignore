@@ -5,3 +5,5 @@ node_modules/
 scripts/dkim-private.pem
 
 mails/
+
+data/

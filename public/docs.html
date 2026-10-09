@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>API Docs - Elsemail</title><link rel="stylesheet" href="/styles.css"></head><body>
+<div class="nav"><b><a href="/" style="color:#fff">Elsemail</a></b><span>Docs</span><span class="sp"></span><a href="/console">Console</a></div>
+<div class="wrap"><div class="card">
+<h2>API Docs</h2>
+<p class="mut">Console login thakle browser theke key charai cholbe. Bahir theke header lagbe: <code>x-api-key: &lt;SERVICE_API_KEY&gt;</code></p>
+<table><tr><th>Method</th><th>Endpoint</th><th>Body</th></tr>
+<tr><td>GET</td><td>/health</td><td>-</td></tr>
+<tr><td>POST</td><td>/api/mail/send</td><td>{to, subject, html/text}</td></tr>
+<tr><td>POST</td><td>/api/auth/send-otp</td><td>{email}</td></tr>
+<tr><td>POST</td><td>/api/auth/verify-otp</td><td>{email, code}</td></tr>
+<tr><td>POST</td><td>/api/auth/request-email-verification</td><td>{email}</td></tr>
+<tr><td>GET</td><td>/api/auth/verify-email?token=</td><td>-</td></tr>
+<tr><td>POST</td><td>/api/auth/request-password-reset</td><td>{email}</td></tr>
+<tr><td>POST</td><td>/api/auth/reset-password</td><td>{token, newPassword}</td></tr>
+<tr><td>POST</td><td>/api/auth/welcome</td><td>{email, name}</td></tr>
+<tr><td>POST</td><td>/api/account/register</td><td>{email, password}</td></tr>
+<tr><td>POST</td><td>/api/account/login</td><td>{email, password}</td></tr>
+<tr><td>GET</td><td>/api/console/mails</td><td>inbox (login)</td></tr>
+</table>
+<h3>Example</h3>
+<pre>curl -X POST https://dash.elsemail.indevs.in/api/auth/send-otp \
+ -H "Content-Type: application/json" -H "x-api-key: KEY" \
+ -d '{"email":"tumi@test.com"}'</pre>
+</div></div>
+<footer><a href="/privacy">Privacy</a> | <a href="/terms">Terms</a></footer>
+</body></html>
