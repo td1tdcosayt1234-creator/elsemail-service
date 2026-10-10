@@ -12,6 +12,7 @@ const config = {
   appName: str('APP_NAME', 'My App'),
   frontendUrl: str('FRONTEND_URL', 'http://localhost:3000').replace(/\/$/, ''),
   serviceApiKey: str('SERVICE_API_KEY', ''),
+  tempOpen: str('TEMP_OPEN', 'false') === 'true', // true = login/key temp off (testing only!)
 
   smtp: {
     host: str('SMTP_HOST', ''),

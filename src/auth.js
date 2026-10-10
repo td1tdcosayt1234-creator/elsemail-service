@@ -6,10 +6,26 @@ const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]');
+if (!fs.existsSync(SESS_FILE)) fs.writeFileSync(SESS_FILE, '{}');
 
-const sessions = new Map(); // sid -> { email, createdAt }
+const SESS_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 din
+function loadSessions() {
+  try {
+    const d = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8'));
+    if (typeof d !== 'object' || d === null) return {};
+    const now = Date.now();
+    let dirty = false;
+    for (const k of Object.keys(d)) {
+      if (!d[k] || !d[k].email || (d[k].createdAt || 0) + SESS_TTL_MS < now) { delete d[k]; dirty = true; }
+    }
+    if (dirty) fs.writeFileSync(SESS_FILE, JSON.stringify(d));
+    return d;
+  } catch { return {}; }
+}
+function saveSessions(s) { fs.writeFileSync(SESS_FILE, JSON.stringify(s)); }
 
 function loadUsers() {
   try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { return []; }
@@ -30,10 +46,10 @@ function isEmail(s) { return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+
 
 function register(email, password) {
   email = String(email).toLowerCase().trim();
-  if (!isEmail(email)) throw new Error('Valid email lagbe.');
-  if (typeof password !== 'string' || password.length < 6) throw new Error('Password min 6 char.');
+  if (!isEmail(email)) throw new Error('A valid email address is required.');
+  if (typeof password !== 'string' || password.length < 6) throw new Error('Password must be at least 6 characters.');
   const users = loadUsers();
-  if (users.find((u) => u.email === email)) throw new Error('Ei email diye account ache. Login koro.');
+  if (users.find((u) => u.email === email)) throw new Error('An account with this email already exists. Please log in.');
   users.push({ email, pass: hashPass(password), createdAt: new Date().toISOString() });
   saveUsers(users);
   return { email };
@@ -42,14 +58,39 @@ function register(email, password) {
 function login(email, password) {
   email = String(email).toLowerCase().trim();
   const u = loadUsers().find((x) => x.email === email);
-  if (!u || !checkPass(password, u.pass)) throw new Error('Email/password milche na.');
+  if (!u || !checkPass(password, u.pass)) throw new Error('Email and password do not match.');
   const sid = crypto.randomBytes(32).toString('hex');
-  sessions.set(sid, { email, createdAt: Date.now() });
+  const sessions = loadSessions();
+  sessions[sid] = { email, createdAt: Date.now() };
+  saveSessions(sessions);
   return sid;
 }
 
-function getSession(sid) { return sid ? sessions.get(sid) || null : null; }
-function logout(sid) { if (sid) sessions.delete(sid); }
+function getSession(sid) { if (!sid) return null; return loadSessions()[sid] || null; }
+
+function changePassword(email, currentPassword, newPassword) {
+  email = String(email).toLowerCase().trim();
+  const users = loadUsers();
+  const u = users.find((x) => x.email === email);
+  if (!u || !checkPass(String(currentPassword), u.pass)) throw new Error('Current password is incorrect.');
+  u.pass = hashPass(newPassword);
+  saveUsers(users);
+  // logout everywhere: drop all sessions for this email
+  const s = loadSessions();
+  for (const k of Object.keys(s)) if (s[k] && s[k].email === email) delete s[k];
+  saveSessions(s);
+  return { email };
+}
+
+function deleteAccount(email) {
+  email = String(email).toLowerCase().trim();
+  saveUsers(loadUsers().filter((x) => x.email !== email));
+  const s = loadSessions();
+  for (const k of Object.keys(s)) if (s[k] && s[k].email === email) delete s[k];
+  saveSessions(s);
+  return { email };
+}
+function logout(sid) { if (!sid) return; const s = loadSessions(); delete s[sid]; saveSessions(s); }
 
 // cookie parse (dep charai)
 function parseCookies(req) {
@@ -71,10 +112,10 @@ function sessionAttach(req, _res, next) {
 
 function requireSession(req, res, next) {
   if (req.session) return next();
-  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Login lagbe.' });
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Login required.' });
   res.redirect('/login');
 }
 
 const SESS_COOKIE = 'es_sess=SID; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000';
 
-module.exports = { register, login, logout, getSession, sessionAttach, requireSession, SESS_COOKIE };
+module.exports = { register, login, logout, getSession, changePassword, deleteAccount, sessionAttach, requireSession, SESS_COOKIE };

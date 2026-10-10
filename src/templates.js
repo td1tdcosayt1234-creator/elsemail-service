@@ -1,52 +1,56 @@
 const config = require('./config');
 
+const LOGO_URL = 'https://elsemail.indevs.in/logo.svg';
+
 function layout(title, bodyInner, preheader = '') {
-  return `<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Arial,sans-serif;">
-  <span style="display:none;opacity:0;">${preheader}</span>
-  <div style="max-width:560px;margin:24px auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7;">
-    <div style="background:#111827;color:#fff;padding:20px 24px;">
-      <div style="font-size:18px;font-weight:bold;">${config.appName}</div>
-      <div style="opacity:.7;font-size:13px;">${title}</div>
+  return `<!doctype html><html><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <span style="display:none;opacity:0;max-height:0;overflow:hidden;">${preheader}</span>
+  <div style="max-width:560px;margin:24px auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0;">
+    <div style="background:#0f172a;color:#fff;padding:24px 28px;">
+      <img src="${LOGO_URL}" alt="ElseMail" width="36" height="36" style="border-radius:8px;vertical-align:middle;">
+      <span style="font-size:20px;font-weight:bold;vertical-align:middle;margin-left:10px;">${config.appName}</span>
+      <div style="opacity:.65;font-size:13px;margin-top:6px;">${title}</div>
     </div>
-    <div style="padding:24px;">${bodyInner}</div>
-    <div style="padding:16px 24px;background:#f9fafb;color:#71717a;font-size:12px;">
-      Ei mail auto-generated. Reply koro na.
+    <div style="padding:28px;color:#1e293b;font-size:15px;line-height:1.6;">${bodyInner}</div>
+    <div style="padding:16px 28px;background:#f8fafc;color:#94a3b8;font-size:12px;border-top:1px solid #e2e8f0;">
+      This is an automated message. Please do not reply.<br>&copy; ${new Date().getFullYear()} ${config.appName}. All rights reserved.
     </div>
   </div></body></html>`;
 }
 
 function btn(href, label) {
-  return `<a href="${href}" style="display:inline-block;background:#111827;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;">${label}</a>`;
+  return `<a href="${href}" style="display:inline-block;background:#0f172a;color:#fff;padding:13px 26px;border-radius:9px;text-decoration:none;font-weight:bold;font-size:15px;">${label}</a>`;
 }
 
 function otpTemplate(code) {
-  const inner = `<p style="font-size:15px;">Tomar verification code:</p>
-    <div style="font-size:34px;font-weight:800;letter-spacing:8px;background:#f4f4f5;border-radius:8px;padding:14px;text-align:center;">${code}</div>
-    <p style="color:#52525b;font-size:13px;">Code-ti 5 minute por expire hobe. Kauke share koro na.</p>`;
+  const inner = `<p style="font-size:15px;margin-top:0;">Your verification code:</p>
+    <div style="font-size:36px;font-weight:800;letter-spacing:10px;background:#f1f5f9;border:1px dashed #cbd5e1;border-radius:10px;padding:16px;text-align:center;color:#0f172a;">${code}</div>
+    <p style="color:#64748b;font-size:13px;">This code expires in 5 minutes. Never share it with anyone.</p>`;
   return {
-    subject: `${config.appName} - Tomar OTP code`,
-    html: layout('Email verification OTP', inner, `OTP: ${code}`),
-    text: `Tomar OTP code: ${code} (5 min valid)`,
+    subject: `${config.appName} - Your verification code`,
+    html: layout('Email verification', inner, `Your code: ${code}`),
+    text: `Your ${config.appName} verification code: ${code} (valid for 5 minutes). Never share it.`,
   };
 }
 
 function verifyEmailTemplate(link) {
-  const inner = `<p>Account verify korte niche click koro:</p><p>${btn(link, 'Verify Email')}</p>
-    <p style="color:#52525b;font-size:13px;word-break:break-all;">Link kaj na korle copy koro:<br>${link}</p>
-    <p style="color:#52525b;font-size:13px;">Link 24 ghonta valid.</p>`;
-  return { subject: `${config.appName} - Email verify koro`, html: layout('Verify your email', inner), text: `Verify: ${link}` };
+  const inner = `<p style="margin-top:0;">Please verify your email address by clicking below:</p><p>${btn(link, 'Verify Email')}</p>
+    <p style="color:#64748b;font-size:13px;word-break:break-all;">If the button does not work, copy this link:<br>${link}</p>
+    <p style="color:#64748b;font-size:13px;">This link is valid for 24 hours.</p>`;
+  return { subject: `${config.appName} - Verify your email`, html: layout('Verify your email', inner), text: `Verify your email: ${link}` };
 }
 
 function resetPasswordTemplate(link) {
-  const inner = `<p>Password reset korte niche click koro:</p><p>${btn(link, 'Reset Password')}</p>
-    <p style="color:#52525b;font-size:13px;word-break:break-all;">Link: ${link}</p>
-    <p style="color:#52525b;font-size:13px;">Tumi request na korle ei mail ignore koro. Link 60 minute valid.</p>`;
-  return { subject: `${config.appName} - Password reset`, html: layout('Reset password', inner), text: `Reset link: ${link}` };
+  const inner = `<p style="margin-top:0;">Click below to reset your password:</p><p>${btn(link, 'Reset Password')}</p>
+    <p style="color:#64748b;font-size:13px;word-break:break-all;">Link: ${link}</p>
+    <p style="color:#64748b;font-size:13px;">If you did not request this, please ignore this email. This link is valid for 60 minutes.</p>`;
+  return { subject: `${config.appName} - Reset your password`, html: layout('Reset your password', inner), text: `Reset your password: ${link}` };
 }
 
-function welcomeTemplate(name = 'bondhu') {
-  const inner = `<p>Hi ${name},</p><p><b>${config.appName}</b>-e welcome!</p><p>Tomar account ready.</p>`;
-  return { subject: `Welcome to ${config.appName}!`, html: layout('Welcome!', inner), text: `Welcome to ${config.appName}, ${name}!` };
+function welcomeTemplate(name = 'friend') {
+  const safe = String(name || 'friend').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])).slice(0, 80);
+  const inner = `<p style="margin-top:0;">Hi ${safe},</p><p>Welcome to <b>${config.appName}</b>!</p><p>Your account is ready.</p><p>${btn(config.frontendUrl + '/console', 'Open Console')}</p>`;
+  return { subject: `Welcome to ${config.appName}!`, html: layout('Welcome!', inner), text: `Welcome to ${config.appName}, ${safe}!` };
 }
 
 module.exports = { otpTemplate, verifyEmailTemplate, resetPasswordTemplate, welcomeTemplate };

@@ -53,6 +53,7 @@ const server = new SMTPServer({
 server.listen(SMTP_PORT, '127.0.0.1', () => {
   console.log(`[dev-smtp] SMTP listening on 127.0.0.1:${SMTP_PORT} (nijer provider)`);
 });
+server.on('error', (err) => console.error('[dev-smtp] server error (ignored):', err && err.message));
 
 http
   .createServer((req, res) => {

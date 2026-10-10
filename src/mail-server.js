@@ -10,8 +10,18 @@ const crypto = require('crypto');
 const net = require('net');
 const tls = require('tls');
 const dns = require('dns').promises;
+require('dns').setServers(['8.8.8.8', '1.1.1.1']); // local resolver flaky, Google DNS
 const { SMTPServer } = require('smtp-server');
 const { simpleParser } = require('mailparser');
+
+// DNS timeout guard (hang hole queue atke jabe na)
+function safeErr(e) { return String((e && e.message) || e || 'unknown error'); }
+function withTimeout(p, ms, what) {
+  return Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timeout')), ms)),
+  ]);
+}
 
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
 const HTTP_PORT = parseInt(process.env.SMTP_HTTP_PORT || '8025', 10);
@@ -43,9 +53,10 @@ class SmtpClient {
   connect() {
     return new Promise((resolve, reject) => {
       const sock = net.connect(25, this.host);
-      sock.setTimeout(30000, () => this.fail(new Error(`${this.host}: timeout`)));
-      sock.once('error', (e) => this.fail(new Error(`${this.host}: ${e.message}`)));
+      sock.setTimeout(30000, () => this.fail(new Error(`${this.host}: connect timeout`)));
+      sock.once('error', (e) => this.fail(new Error(`${this.host}: ${safeErr(e)}`)));
       sock.once('connect', () => {
+        sock.setTimeout(0); // connected - per-command timeouts take over from here
         this.attach(sock);
         resolve();
       });
@@ -84,11 +95,21 @@ class SmtpClient {
     }
   }
 
-  /** Send a command, resolve with the complete reply. */
-  cmd(command) {
+  /** Send a command, resolve with the complete reply. 30s timeout so a
+      tarpitting server can never wedge the queue forever. */
+  cmd(command, ms = 30000) {
     return new Promise((resolve, reject) => {
       if (!this.sock || this.sock.destroyed) return reject(new Error('socket closed'));
-      this.queue.push({ resolve, reject });
+      const waiter = {};
+      const timer = setTimeout(() => {
+        const i = this.queue.indexOf(waiter);
+        if (i >= 0) this.queue.splice(i, 1);
+        try { if (this.sock) this.sock.destroy(); } catch (_) {}
+        reject(new Error(`${this.host}: reply timeout (${String(command).split(' ')[0]})`));
+      }, ms);
+      waiter.resolve = (v) => { clearTimeout(timer); resolve(v); };
+      waiter.reject = (e) => { clearTimeout(timer); reject(e); };
+      this.queue.push(waiter);
       this.sock.write(command + '\r\n');
     });
   }
@@ -125,9 +146,10 @@ async function sendToMxOnce(mx, envelopeFrom, envelopeTo, raw, useTls) {
   const c = new SmtpClient(mx);
   try {
     await c.connect();
-    // greeting 220
+    // greeting 220 (30s cap)
     const g = await new Promise((resolve, reject) => {
-      c.queue.push({ resolve, reject });
+      const timer = setTimeout(() => reject(new Error(`${mx}: greeting timeout`)), 30000);
+      c.queue.push({ resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
     });
     if (g.code !== 220) throw new Error(`${mx}: no greeting: ${g.text.split('\n')[0]}`);
     const ehlo = await c.cmd(`EHLO ${HOSTNAME}`);
@@ -149,7 +171,11 @@ async function sendToMxOnce(mx, envelopeFrom, envelopeTo, raw, useTls) {
     await c.cmd(`RCPT TO:${envelopeTo}`);
     await c.cmd('DATA');
     const final = await new Promise((resolve, reject) => {
-      c.queue.push({ resolve, reject });
+      const timer = setTimeout(() => {
+        try { if (c.sock) c.sock.destroy(); } catch (_) {}
+        reject(new Error(`${mx}: DATA reply timeout`));
+      }, 60000);
+      c.queue.push({ resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
       c.sock.write(raw + '\r\n.\r\n');
     });
     if (final.code !== 250) {
@@ -165,7 +191,7 @@ async function sendToMx(from, to, raw) {
   const domain = to.split('@')[1];
   let mxRecords;
   try {
-    mxRecords = await dns.resolveMx(domain);
+    mxRecords = await withTimeout(dns.resolveMx(domain), 10000, `MX lookup ${domain}`);
   } catch (e) {
     throw new Error(`MX lookup fail ${domain}: ${e.message}`);
   }
@@ -183,7 +209,7 @@ async function sendToMx(from, to, raw) {
         const r = await sendToMxOnce(mx, envelopeFrom, envelopeTo, raw, useTls);
         return r;
       } catch (e) {
-        errors.push(`${mx}${useTls ? '+tls' : '+plain'}: ${e.message}`);
+        errors.push(`${mx}${useTls ? '+tls' : '+plain'}: ${safeErr(e)}`);
       }
     }
   }
@@ -195,7 +221,11 @@ async function processMxQueue() {
   mxSending = true;
   const job = mxQueue.shift();
   try {
-    const r = await job.fn();
+    // Deadline guarantees the queue ALWAYS advances, even if a dialog hangs
+    const r = await Promise.race([
+      job.fn(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('mx job deadline 150s')), 150000)),
+    ]);
     job.resolve(r);
   } catch (e) {
     job.reject(e);
@@ -228,6 +258,7 @@ const server = new SMTPServer({
         const p = await simpleParser(raw);
         const rec = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          messageId: p.messageId || '',
           time: new Date().toISOString(),
           from: p.from?.text || '',
           to: (p.to?.value || []).map((x) => x.address).join(', '),
@@ -239,9 +270,12 @@ const server = new SMTPServer({
         };
         mails.unshift(rec);
         if (mails.length > 200) mails.pop();
-        fs.writeFileSync(path.join(DIR, `${rec.id}.json`), JSON.stringify(rec, null, 2));
+        const recFile = path.join(DIR, `${rec.id}.json`);
+        fs.writeFileSync(recFile, JSON.stringify(rec, null, 2));
+        console.log(`[mail-server] To:${rec.to} Subj:${rec.subject} status=queued`);
+        cb(null); // SMTP accept NOW - MX delivery background-e (slow MX te 421 timeout hobe na)
 
-        // ---------- outbound: relay to recipient MX (TLS) ----------
+        // ---------- outbound: relay to recipient MX (TLS), background ----------
         // NOTE: DKIM signing is done by the email-service (nodemailer, RFC 6376).
         // This server only relays, so we do NOT sign again — double signing breaks verification.
         if (ENABLE_MX_DELIVERY) {
@@ -249,22 +283,24 @@ const server = new SMTPServer({
             .map((x) => x.address)
             .filter((a) => a && !a.toLowerCase().endsWith(`@${DOMAIN}`));
           const fromAddr = p.from?.value?.[0]?.address || `no-reply@${DOMAIN}`;
-          for (const rcpt of toList) {
-            try {
-              const r = await queueMxDelivery(() => sendToMx(fromAddr, rcpt, raw));
-              rec.status = `sent via ${r.mx}${r.tls ? ' (tls)' : ''}`;
-              rec.dkim = true;
-              console.log(`[mx-deliver] OK ${rcpt} via ${r.mx}${r.tls ? ' [TLS]' : ''}`);
-            } catch (e) {
-              rec.status = 'failed: ' + e.message;
-              rec.dkim = !!rec.dkim;
-              console.error(`[mx-deliver] FAIL ${rcpt}: ${e.message}`);
+          (async () => {
+            for (const rcpt of toList) {
+              try {
+                const r = await withTimeout(
+                  queueMxDelivery(() => sendToMx(fromAddr, rcpt, raw)),
+                  120000, `deliver ${rcpt}`
+                );
+                rec.status = `sent via ${r.mx}${r.tls ? ' (tls)' : ''}`;
+                rec.dkim = true;
+                console.log(`[mx-deliver] OK ${rcpt} via ${r.mx}${r.tls ? ' [TLS]' : ''}`);
+              } catch (e) {
+                rec.status = 'failed: ' + safeErr(e);
+                console.error(`[mx-deliver] FAIL ${rcpt}: ${safeErr(e)}`);
+              }
+              try { fs.writeFileSync(recFile, JSON.stringify(rec, null, 2)); } catch (_) {}
             }
-          }
-          fs.writeFileSync(path.join(DIR, `${rec.id}.json`), JSON.stringify(rec, null, 2));
+          })();
         }
-        console.log(`[mail-server] To:${rec.to} Subj:${rec.subject} status=${rec.status}`);
-        cb(null);
       } catch (e) {
         console.error('[mail-server] parse error:', e.message);
         cb(e);
@@ -276,6 +312,8 @@ const server = new SMTPServer({
 server.listen(SMTP_PORT, '127.0.0.1', () => {
   console.log(`[mail-server] SMTP listening on 127.0.0.1:${SMTP_PORT} (mx-delivery=${ENABLE_MX_DELIVERY}, domain=${DOMAIN})`);
 });
+// Abrupt client disconnect (port probe / half-open conn) must NEVER kill the server
+server.on('error', (err) => console.error('[mail-server] server error (ignored):', err && err.message));
 
 http
   .createServer((req, res) => {

@@ -42,16 +42,17 @@ function getSmtpTransporter() {
   return smtpTransporter;
 }
 
-async function sendViaConsole({ to, subject, html, text }) {
+async function sendViaConsole({ to, subject, html, text, attachments }) {
   console.log('\n===== [console-mail] =====');
   console.log('To:', to);
   console.log('Subject:', subject);
   console.log('Text:', (text || '').slice(0, 500));
+  if (attachments && attachments.length) console.log('Attachments:', attachments.map((a) => a.filename).join(', '));
   console.log('==========================\n');
   return { id: `console-${Date.now()}`, provider: 'console' };
 }
 
-async function sendViaSmtp({ to, subject, html, text, from }) {
+async function sendViaSmtp({ to, subject, html, text, from, attachments }) {
   if (!config.smtp.host) throw new Error('SMTP_HOST missing. .env check koro.');
   const domain = process.env.MAIL_DOMAIN || 'elsemail.indevs.in';
   // Headers that IMPROVE deliverability only. Deliberately NOT setting
@@ -74,6 +75,7 @@ async function sendViaSmtp({ to, subject, html, text, from }) {
     subject,
     text: text || undefined,
     html: html || undefined,
+    attachments: (attachments || []).map((a) => ({ filename: a.filename, content: Buffer.from(a.contentBase64, 'base64'), contentType: a.contentType })),
     headers,
     envelope: {
       from: (from || config.from).match(/<(.+)>/)?.[1] || from || config.from,
@@ -86,19 +88,20 @@ async function sendViaSmtp({ to, subject, html, text, from }) {
   return { id: info.messageId, provider: 'smtp' };
 }
 
-async function sendViaResend({ to, subject, html, text, from }) {
+async function sendViaResend({ to, subject, html, text, from, attachments }) {
   if (!config.resendApiKey) throw new Error('RESEND_API_KEY missing.');
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.resendApiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: from || config.from, to: Array.isArray(to) ? to : [to], subject, html, text }),
+    body: JSON.stringify({ from: from || config.from, to: Array.isArray(to) ? to : [to], subject, html, text,
+      attachments: (attachments || []).map((a) => ({ filename: a.filename, content: a.contentBase64 })) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`Resend error ${res.status}: ${JSON.stringify(data)}`);
   return { id: data.id, provider: 'resend' };
 }
 
-async function sendViaSendgrid({ to, subject, html, text, from }) {
+async function sendViaSendgrid({ to, subject, html, text, from, attachments }) {
   if (!config.sendgridApiKey) throw new Error('SENDGRID_API_KEY missing.');
   // SendGrid "from" strictly email chaay, "Name <mail>" parse kore ber kori
   const fromEmail = (from || config.from).match(/<(.+)>/)?.[1] || from || config.from;
@@ -113,6 +116,7 @@ async function sendViaSendgrid({ to, subject, html, text, from }) {
         ...(text ? [{ type: 'text/plain', value: text }] : []),
         ...(html ? [{ type: 'text/html', value: html }] : []),
       ],
+      attachments: (attachments || []).map((a) => ({ content: a.contentBase64, filename: a.filename, type: a.contentType, disposition: 'attachment' })),
     }),
   });
   if (!res.ok) {
@@ -122,7 +126,7 @@ async function sendViaSendgrid({ to, subject, html, text, from }) {
   return { id: `sg-${Date.now()}`, provider: 'sendgrid' };
 }
 
-async function sendViaBrevo({ to, subject, html, text, from }) {
+async function sendViaBrevo({ to, subject, html, text, from, attachments }) {
   if (!config.brevoApiKey) throw new Error('BREVO_API_KEY missing.');
   const senderMatch = (from || config.from).match(/^(.*)<(.+)>$/);
   const sender = senderMatch
@@ -137,6 +141,7 @@ async function sendViaBrevo({ to, subject, html, text, from }) {
       subject,
       htmlContent: html || undefined,
       textContent: text || undefined,
+      attachment: (attachments || []).map((a) => ({ content: a.contentBase64, name: a.filename })),
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -148,16 +153,16 @@ async function sendViaBrevo({ to, subject, html, text, from }) {
  * Unified send — provider switch ekhanei.
  * @returns {{id, provider}}
  */
-async function sendMail({ to, subject, html, text, from }) {
+async function sendMail({ to, subject, html, text, from, attachments }) {
   if (!to || !subject || (!html && !text)) {
-    throw new Error('to, subject ebong html/text er ontoto ekta lagbe.');
+    throw new Error('to, subject and at least one of html/text are required.');
   }
   switch (config.provider) {
-    case 'smtp': return sendViaSmtp({ to, subject, html, text, from });
-    case 'resend': return sendViaResend({ to, subject, html, text, from });
-    case 'sendgrid': return sendViaSendgrid({ to, subject, html, text, from });
-    case 'brevo': return sendViaBrevo({ to, subject, html, text, from });
-    default: return sendViaConsole({ to, subject, html, text });
+    case 'smtp': return sendViaSmtp({ to, subject, html, text, from, attachments });
+    case 'resend': return sendViaResend({ to, subject, html, text, from, attachments });
+    case 'sendgrid': return sendViaSendgrid({ to, subject, html, text, from, attachments });
+    case 'brevo': return sendViaBrevo({ to, subject, html, text, from, attachments });
+    default: return sendViaConsole({ to, subject, html, text, attachments });
   }
 }
 

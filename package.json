@@ -8,7 +8,9 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "smtp": "node src/dev-smtp.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "web:build": "vite build",
+    "web:check": "tsc --noEmit"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -17,9 +19,18 @@
     "express-rate-limit": "^7.2.0",
     "mailparser": "^3.9.37",
     "nodemailer": "^6.9.14",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "smtp-server": "^3.19.18"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
   }
 }
