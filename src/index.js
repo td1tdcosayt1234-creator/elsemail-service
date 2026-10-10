@@ -184,6 +184,23 @@ app.get('/privacy', (_req, res) => res.sendFile(path.join(__dirname, '..', 'publ
 app.get('/terms', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'terms.html')));
 app.get('/console', auth.requireSession, (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'console.html')));
 
+// ---------- MTA-STS policy (RFC 8461) ----------
+// Declared at _mta-sts.<domain> TXT; policy served at https://mta-sts.<domain>/.well-known/mta-sts.txt
+// Lets senders to our domain enforce TLS and report failures via TLSRPT.
+app.get('/.well-known/mta-sts.txt', (_req, res) => {
+  const stsId = process.env.MTA_STS_ID || '2026101001';
+  const policy = [
+    'version: STSv1',
+    'mode: enforce',
+    'mx: elsemail.indevs.in',
+    'mx: alt.elsemail.indevs.in',
+    'max_age: 604800',
+  ].join('\n');
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'max-age=86400');
+  res.send(policy + '\n');
+});
+
 app.listen(config.port, () => {
   console.log(`[email-service] http://localhost:${config.port} provider=${getActiveProvider()}`);
   if (!config.serviceApiKey) console.log('[warn] SERVICE_API_KEY empty - API open (dev only). Prod-e key bosao.');

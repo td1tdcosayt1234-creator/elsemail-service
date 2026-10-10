@@ -1,17 +1,44 @@
 const nodemailer = require('nodemailer');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const config = require('./config');
+
+// DKIM signing config — nodemailer applies RFC 6376 correctly (relaxed/relaxed).
+// Key must match the DNS TXT record: local._domainkey.<domain>
+const DKIM_KEY_PATH =
+  process.env.DKIM_PRIVATE_PATH || path.join(__dirname, '..', 'scripts', 'dkim-private.pem');
+function getDkimConfig() {
+  const domain = process.env.MAIL_DOMAIN || 'elsemail.indevs.in';
+  const selector = process.env.DKIM_SELECTOR || 'local';
+  if (!fs.existsSync(DKIM_KEY_PATH)) return undefined;
+  try {
+    return { domainName: domain, keySelector: selector, privateKey: fs.readFileSync(DKIM_KEY_PATH) };
+  } catch (_) {
+    return undefined;
+  }
+}
 
 let smtpTransporter = null;
 function getSmtpTransporter() {
   if (smtpTransporter) return smtpTransporter;
   const isLocal = ['127.0.0.1', 'localhost', '::1'].includes(config.smtp.host);
+  const dkim = getDkimConfig();
   smtpTransporter = nodemailer.createTransport({
     host: config.smtp.host,
     port: config.smtp.port,
     secure: config.smtp.secure,
     ignoreTLS: isLocal, // local dev-smtp plain, cert issue nai
     auth: config.smtp.user ? { user: config.smtp.user, pass: config.smtp.pass } : undefined,
+    dkim,
+    // Gmail deliverability: stable Message-ID + proper envelope
+    // HELO/EHLO identity must resolve and have SPF — use the apex, which does.
+    // A "mail." subdomain that doesn't resolve fails Gmail's HELO SPF check.
+    name: process.env.MAIL_HOSTNAME || 'elsemail.indevs.in',
   });
+  if (dkim) {
+    console.log(`[providers] DKIM enabled: ${dkim.keySelector}.${dkim.domainName}`);
+  }
   return smtpTransporter;
 }
 
@@ -26,12 +53,35 @@ async function sendViaConsole({ to, subject, html, text }) {
 
 async function sendViaSmtp({ to, subject, html, text, from }) {
   if (!config.smtp.host) throw new Error('SMTP_HOST missing. .env check koro.');
+  const domain = process.env.MAIL_DOMAIN || 'elsemail.indevs.in';
+  // Headers that IMPROVE deliverability only. Deliberately NOT setting
+  // 'Precedence: bulk' or 'Auto-Submitted: auto-generated' — those tell spam
+  // filters this is bulk/marketing mail, which pushes transactional OTP mail
+  // (which this is) into the spam folder.
+  const headers = {
+    'Reply-To': from || config.from,
+    'X-Entity-Ref-ID': crypto.randomUUID(),
+  };
+  // Low-volume transactional mail doesn't need List-Unsubscribe; it can even
+  // hurt. Opt in via env if the app later sends bulk notifications.
+  if (process.env.ENABLE_LIST_UNSUBSCRIBE === 'true') {
+    headers['List-Unsubscribe'] = `<mailto:unsubscribe@${domain}?subject=unsubscribe>`;
+    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  }
   const info = await getSmtpTransporter().sendMail({
     from: from || config.from,
     to,
     subject,
     text: text || undefined,
     html: html || undefined,
+    headers,
+    envelope: {
+      from: (from || config.from).match(/<(.+)>/)?.[1] || from || config.from,
+      to,
+    },
+    // stable Message-ID domain so DKIM alignment + reputation accumulate
+    messageId: `<${crypto.randomUUID()}@${domain}>`,
+    date: new Date(),
   });
   return { id: info.messageId, provider: 'smtp' };
 }
