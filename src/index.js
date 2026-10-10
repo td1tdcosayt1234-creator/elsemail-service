@@ -175,7 +175,7 @@ app.post('/api/auth/request-email-verification', apiKeyAuth, sendLimiter, async 
 });
 
 app.get('/api/auth/verify-email', verifyLimiter, async (req, res) => {
-  const { token } = req.query || {};
+  const token = String(req.query.token || '').trim();
   if (!token) return res.status(400).json({ error: 'A "token" is required.' });
   const r = consumeToken(String(token), 'verify');
   if (!r.ok) return res.status(400).json({ ok: false, error: r.reason });
@@ -198,7 +198,8 @@ app.post('/api/auth/request-password-reset', apiKeyAuth, sendLimiter, async (req
 });
 
 app.post('/api/auth/reset-password', apiKeyAuth, verifyLimiter, async (req, res) => {
-  const { token, newPassword } = req.body || {};
+  const token = String((req.body || {}).token || '').trim();
+  const { newPassword } = req.body || {};
   if (!token || typeof newPassword !== 'string' || newPassword.length < 6) {
     return res.status(400).json({ error: 'A "token" and "newPassword" (min 6 characters) are required.' });
   }
@@ -222,7 +223,7 @@ app.post('/api/auth/welcome', apiKeyAuth, sendLimiter, async (req, res) => {
 });
 
 // ---------- Account (login/signup) ----------
-const authLimiter = rateLimit({ windowMs: 60_000, max: 20 });
+const authLimiter = rateLimit({ windowMs: 60_000, max: 20, handler: limitHandler, standardHeaders: true });
 app.post('/api/account/register', authLimiter, (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -256,7 +257,7 @@ app.post('/api/account/change-password', authLimiter, (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
-app.delete('/api/account', (req, res) => {
+app.delete('/api/account', authLimiter, (req, res) => {
   try {
     if (!req.session) return res.status(401).json({ ok: false, error: 'Login required.' });
     auth.deleteAccount(req.session.email);
@@ -297,7 +298,12 @@ app.get('/api/console/mails', apiKeyAuth, (req, res) => {
     const dir = path.join(__dirname, '..', 'mails');
     if (!fs.existsSync(dir)) return res.json([]);
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).slice(-50).reverse();
-    res.json(files.map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))));
+    const out = [];
+    for (const f of files) {
+      try { out.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))); }
+      catch (_) { /* skip corrupt file */ }
+    }
+    res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -317,7 +323,6 @@ for (const route of ['/', '/login', '/signup', '/docs', '/privacy', '/terms', '/
 // Declared at _mta-sts.<domain> TXT; policy served at https://mta-sts.<domain>/.well-known/mta-sts.txt
 // Lets senders to our domain enforce TLS and report failures via TLSRPT.
 app.get('/.well-known/mta-sts.txt', (_req, res) => {
-  const stsId = process.env.MTA_STS_ID || '2026101001';
   const policy = [
     'version: STSv1',
     'mode: enforce',
