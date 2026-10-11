@@ -52,7 +52,7 @@ function checkOtp(email, code) {
   if (Date.now() > rec.expiresAt) { delete otps[key]; save(OTP_FILE, otps); return { ok: false, reason: 'OTP expired (5 min). Please request a new one.' }; }
   rec.attempts = (rec.attempts || 0) + 1;
   if (rec.attempts > 5) { delete otps[key]; save(OTP_FILE, otps); return { ok: false, reason: 'Too many attempts. Please request a new OTP.' }; }
-  if (rec.code !== String(code).trim()) { save(OTP_FILE, otps); return { ok: false, reason: `OTP does not match (${rec.attempts}/5).` }; }
+  if (rec.code !== String(code).trim()) { save(OTP_FILE, otps); return { ok: false, reason: `OTP does not match (${Math.min(rec.attempts, 5)}/5).` }; }
   delete otps[key];
   save(OTP_FILE, otps);
   return { ok: true };

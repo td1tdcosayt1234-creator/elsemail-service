@@ -45,7 +45,8 @@ function parseMessage(raw) {
   return { headerLines, headers, body };
 }
 
-/** Build the relaxed-canonical string that gets signed */
+/** Build the relaxed-canonical string that gets signed (no trailing CRLF —
+    matches nodemailer/RFC 6376 as verified by Gmail-accepted mail) */
 function buildSignedData(headers, signedNames, dkimHeaderValue) {
   const parts = [];
   const map = new Map(headers.map((h) => [h.name, h.value]));
@@ -58,7 +59,7 @@ function buildSignedData(headers, signedNames, dkimHeaderValue) {
   if (dkimHeaderValue !== undefined) {
     parts.push(canonicalizeHeaderRelaxed('dkim-signature', dkimHeaderValue));
   }
-  return parts.join('\r\n') + '\r\n';
+  return parts.join('\r\n');
 }
 
 function bodyHashRelaxed(body) {

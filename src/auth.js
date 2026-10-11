@@ -37,10 +37,16 @@ function hashPass(pass, salt = crypto.randomBytes(16).toString('hex')) {
   return `${salt}:${h}`;
 }
 function checkPass(pass, stored) {
-  const [salt, h] = String(stored).split(':');
-  if (!salt || !h) return false;
-  const h2 = crypto.scryptSync(pass, salt, 64);
-  return crypto.timingSafeEqual(Buffer.from(h, 'hex'), h2);
+  try {
+    const [salt, h] = String(stored).split(':');
+    if (!salt || !h) return false;
+    const h2 = crypto.scryptSync(pass, salt, 64);
+    const hb = Buffer.from(h, 'hex');
+    if (hb.length !== h2.length) return false;
+    return crypto.timingSafeEqual(hb, h2);
+  } catch {
+    return false;
+  }
 }
 function isEmail(s) { return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
 

@@ -1,7 +1,7 @@
 @echo off
 REM Elsemail PC SMTP server - double-click to start both services
 REM SMTP: 127.0.0.1:587 | Inbox: http://localhost:8025/ | API: http://localhost:3000/health
-cd /d "C:\Users\RDP\Documents\Default Project\elsemail-service"
+cd /d "%~dp0"
 set SMTP_PORT=587
 set SMTP_HTTP_PORT=8025
 set ENABLE_MX_DELIVERY=true
