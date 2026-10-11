@@ -15,7 +15,12 @@ const { SMTPServer } = require('smtp-server');
 const { simpleParser } = require('mailparser');
 
 // DNS timeout guard (hang hole queue atke jabe na)
-function safeErr(e) { return String((e && e.message) || e || 'unknown error'); }
+function safeErr(e) {
+  if (e && typeof e === 'object' && typeof e.code === 'number' && typeof e.text === 'string') {
+    return `${e.code} ${e.text.split('\n')[0]}`.slice(0, 300); // SMTP reply object
+  }
+  return String((e && e.message) || e || 'unknown error');
+}
 function withTimeout(p, ms, what) {
   return Promise.race([
     p,
