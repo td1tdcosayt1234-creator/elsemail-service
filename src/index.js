@@ -19,12 +19,8 @@ app.use(auth.sessionAttach);
 
 // ---- Service API-key guard (console login thakleo cholbe) ----
 function apiKeyAuth(req, res, next) {
-  if (config.tempOpen) return next(); // TEMP: login off
-  if (req.session) return next();
-  if (!config.serviceApiKey) return next(); // dev mode: open
-  const got = req.header('x-api-key');
-  if (got !== config.serviceApiKey) return res.status(401).json({ error: 'Invalid x-api-key' });
-  next();
+  // OPEN MODE (owner request): key thak/na-thak/wrong hok — সব-i chale, কোনো block hobe na.
+  return next();
 }
 
 // ---- Rate limits (abuse rodh, JSON errors) ----
@@ -77,7 +73,7 @@ app.get('/api/auth/check', (req, res) => {
   if (req.session) return res.json({ ok: true, mode: 'session', email: req.session.email });
   if (!config.serviceApiKey) return res.json({ ok: true, mode: 'open', note: 'No SERVICE_API_KEY set.' });
   if (req.header('x-api-key') === config.serviceApiKey) return res.json({ ok: true, mode: 'key' });
-  res.status(401).json({ ok: false, mode: 'none', error: 'Invalid or missing x-api-key.' });
+  res.json({ ok: true, mode: 'open', note: 'Auth disabled: key wrong/hole-o kaj korbe.' });
 });
 
 // ---------- Generic send ----------
